@@ -3,7 +3,7 @@ name: TaskConsumer - Docker Image CI
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 permissions:
