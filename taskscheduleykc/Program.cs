@@ -1,8 +1,9 @@
-﻿
-using Hangfire;
+﻿using Hangfire;
 using Hangfire.PostgreSql;
 using Npgsql;
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using taskscheduleykc;
 
 class Program
@@ -16,53 +17,56 @@ class Program
 
         var postgresOptions = new PostgreSqlStorageOptions
         {
-            PrepareSchemaIfNecessary = true, // Gerekirse şemayı otomatik oluştur
-            QueuePollInterval = TimeSpan.FromSeconds(10) // Kuyruk sorgulama aralığı
+            PrepareSchemaIfNecessary = true,
+            QueuePollInterval = TimeSpan.FromSeconds(10)
         };
 
         GlobalConfiguration.Configuration
             .UsePostgreSqlStorage(connectionString, postgresOptions);
 
-        using (var server = new BackgroundJobServer())
-        {
-            Console.WriteLine("Hangfire server başlatıldı ve job'lar çalışmaya başladı...");
+        using var server = new BackgroundJobServer();
 
-            // RabbitMQ dinlemeyi başlat
-            var taskConsumer = new TaskConsumer();
-            taskConsumer.InitializeAsync().Wait();
-            taskConsumer.StartListening();
+        Console.WriteLine("Hangfire server başlatıldı ve job'lar çalışmaya başladı...");
 
-            // Programın kapanmaması için bekleme
-            Console.WriteLine("Çıkmak için Enter'a basın...");
-            Console.ReadLine();
-        }
+        // RabbitMQ Consumer
+        var taskConsumer = new TaskConsumer();
+
+        await taskConsumer.InitializeAsync();
+
+        taskConsumer.StartListening();
+
+        Console.WriteLine("TaskConsumer başarıyla başlatıldı.");
+        Console.WriteLine("RabbitMQ kuyruğu dinleniyor...");
+        Console.WriteLine("Uygulama sürekli çalışma modunda.");
+
+        // Docker container'ın kapanmasını engeller
+        await Task.Delay(Timeout.InfiniteTimeSpan);
     }
 
     private static async Task EnsureTableExists(string connectionString)
     {
         try
         {
-            using (var connection = new NpgsqlConnection(connectionString))
-            {
-                await connection.OpenAsync();
+            using var connection = new NpgsqlConnection(connectionString);
 
-                string createTableQuery = @"
-                    CREATE TABLE IF NOT EXISTS JobDtoScheduleWarn (
-                        ScheduleWarnId VARCHAR(255) PRIMARY KEY,
-                        JobId VARCHAR(255) NOT NULL
-                    );";
+            await connection.OpenAsync();
 
-                using (var command = new NpgsqlCommand(createTableQuery, connection))
-                {
-                    await command.ExecuteNonQueryAsync();
-                }
-            }
+            string createTableQuery = @"
+                CREATE TABLE IF NOT EXISTS JobDtoScheduleWarn (
+                    ScheduleWarnId VARCHAR(255) PRIMARY KEY,
+                    JobId VARCHAR(255) NOT NULL
+                );";
+
+            using var command = new NpgsqlCommand(createTableQuery, connection);
+
+            await command.ExecuteNonQueryAsync();
+
             Console.WriteLine("JobDtoScheduleWarn tablosu kontrol edildi.");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Tablo kontrol edilirken hata oluştu: {ex.Message}");
+            throw;
         }
     }
-
 }
